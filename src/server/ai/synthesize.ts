@@ -145,9 +145,7 @@ export function synthesizeDraft(input: {
     });
   });
 
-  const cta = input.brand
-    ? `${input.brand.brandName} can walk through this with ${input.brief.audience.toLowerCase()} against the actual close, scope, or repository — not a generic demo.`
-    : `The next useful step is a working session on ${input.brief.contentGoal.charAt(0).toLowerCase()}${input.brief.contentGoal.slice(1)}`;
+  const cta = input.brief.contentGoal;
 
   blocks.push({
     id: "cta",
@@ -195,7 +193,7 @@ export function synthesizeRepurpose(input: {
     "",
     evidence,
     "",
-    `If you own this for ${input.brief.audience.toLowerCase()}, the useful question is not whether the tool is impressive. It is which decision you still have to make yourself.`,
+    `If you own this for ${input.brief.audience}, the useful question is which decision you still have to make yourself.`,
     "",
     `${voice} wrote the long version for people who have to defend the choice.`,
   ].join("\n");

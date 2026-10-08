@@ -94,7 +94,7 @@ const northwind: DemoPackage = {
       excerpt:
         "Teams that move reconciliations into the week stop treating day one of close as the moment evidence is gathered. The close becomes a confirmation step. The same note warns that the tool does not remove the need for a human to sign off on judgmental entries.",
       relevance: "Defines the product idea as a change in when work happens.",
-      claim: "Continuous close turns month-end into a confirmation step only if reconciliations already happened during the month.",
+      claim: "Teams that move reconciliations into the week stop treating day one of close as the moment evidence is gathered. The close becomes a confirmation step.",
       verification: "SOURCE_GROUNDED",
     },
     {
@@ -104,7 +104,7 @@ const northwind: DemoPackage = {
       excerpt:
         "Accruals, revenue cut-off, and one-off reserves remain judgment calls. A platform can show who prepared the entry and which evidence is attached. It cannot decide the accounting. The sign-off has to stay with a named controller.",
       relevance: "Sets the boundary the brand wants the article to keep.",
-      claim: "A close platform can show preparer and evidence, but judgmental entries still require a named human sign-off.",
+      claim: "A platform can show who prepared the entry and which evidence is attached. The sign-off has to stay with a named controller.",
       verification: "SOURCE_GROUNDED",
     },
   ],

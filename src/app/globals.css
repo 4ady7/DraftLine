@@ -54,18 +54,26 @@ button { cursor: pointer; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px 16px;
   padding: 14px 22px;
   border-bottom: 1px solid var(--line);
-  background: rgba(251, 249, 244, 0.92);
+  background: var(--panel);
   position: sticky;
   top: 0;
   z-index: 4;
+  flex-wrap: wrap;
 }
 .brand {
   display: flex;
   flex-direction: column;
   text-decoration: none;
+  min-width: 0;
+}
+.brand span {
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .brand strong {
   font-family: var(--font-serif);
@@ -228,13 +236,17 @@ textarea { min-height: 96px; resize: vertical; }
 .unsaved { color: var(--accent); font-size: 13px; }
 .faults { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
 .faults summary { cursor: pointer; color: var(--muted); }
+.faults:not([open]) > :not(summary) { display: none; }
 
 @media (max-width: 1080px) {
   .home-grid, .row-2 { grid-template-columns: 1fr; }
   .workspace { height: auto; grid-template-columns: 1fr; }
+  .col { padding: 14px; }
   .col-pipeline, .col-side { border: 0; }
   .pipeline-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; }
-  .stage-card { min-width: 220px; margin: 0; }
+  .stage-card { min-width: 210px; margin: 0; }
+  .work-head { flex-direction: column; }
+  .work-head h2 { font-size: 30px; }
   h1 { max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) {

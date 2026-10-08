@@ -57,7 +57,7 @@ describe("orchestrator", () => {
     const editorial = view.stages.find((stage) => stage.stage === "EDITORIAL");
     const editorialOutput = editorial?.output && "verdict" in editorial.output ? editorial.output : null;
     expect(editorialOutput?.verdict).toBe("NEEDS_REVISION");
-    expect(editorialOutput?.findings.some((finding) => finding.verificationFlag === "NEEDS_CURRENT_DATA")).toBe(true);
+    expect(editorialOutput?.findings.filter((finding) => finding.severity === "high").map((finding) => finding.verificationFlag)).toEqual(["NEEDS_CURRENT_DATA"]);
 
     await approveCurrent(runId);
     view = await getRun(owner, runId);

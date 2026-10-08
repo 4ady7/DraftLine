@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DraftOutput, OutlineOutput, ResearchOutput, SearchResult } from "@/domain/schemas";
+import { overlapsExcerpt } from "@/domain/text";
 import { constrainResearch } from "@/server/agents/guards";
 import { heuristicFindings } from "@/server/agents/heuristics";
+import { DEMO_PACKAGES } from "@/server/demo/catalog";
 import { MalformedModelOutputError } from "@/server/errors";
 
 const retrievedAt = "2026-10-08T12:00:00.000Z";
@@ -19,6 +21,17 @@ function source(overrides: Partial<SearchResult> = {}): SearchResult {
     ...overrides,
   };
 }
+
+describe("demo corpus claims", () => {
+  it("keeps source-grounded claims inside the excerpt they cite", () => {
+    for (const pack of Object.values(DEMO_PACKAGES)) {
+      for (const source of pack.corpus) {
+        if (source.verification !== "SOURCE_GROUNDED") continue;
+        expect(overlapsExcerpt(source.claim, source.excerpt), `${pack.id} ${source.id}`).toBe(true);
+      }
+    }
+  });
+});
 
 describe("research provenance guard", () => {
   it("keeps tool metadata and refuses a source the tool did not return", () => {

@@ -187,7 +187,7 @@ export function Workspace({ runId }: { runId: string }) {
             <div>
               <p className="kicker">{run.brief.title}</p>
               <h2>{selected.label}</h2>
-              <p className="fine">{described.detail}</p>
+              <p className="fine">{selectedDetail(selected, run)}</p>
             </div>
             <div className="btn-row">
               <button className="btn" type="button" onClick={() => download("markdown")}>Export Markdown</button>
@@ -574,12 +574,31 @@ function statusLabel(stage: StageView): string {
   return stage.status.charAt(0) + stage.status.slice(1).toLowerCase();
 }
 
+function selectedDetail(stage: StageView, run: RunView): string {
+  const focus = run.state === "RETRYING" || run.state === "FAILED" ? run.failedStage ?? run.activeStage : run.activeStage;
+  const onFocus =
+    run.state === "COMPLETED" ||
+    run.state === "CANCELLED" ||
+    run.state === "DRAFT_CREATED" ||
+    run.state === "BLOCKED" ||
+    !focus ||
+    focus === stage.stage;
+  if (onFocus) return describeRunState(run.state).detail;
+  if (stage.stale) return "This version is stale. It is not the input to the next stage.";
+  if (stage.status === "WAITING") return "This stage has not started.";
+  if (stage.status === "APPROVED" || stage.status === "COMPLETED") return `Version ${stage.version} is already approved.`;
+  return stage.purpose;
+}
+
 function stageSummary(stage: StageView): string {
   if (stage.stage === "RESEARCH" && stage.sources.length) return `${stage.sources.length} sources · ${stage.claims.length} claims`;
+  if (stage.stage === "OUTLINE" && stage.output && "sections" in stage.output) return `${stage.output.sections.length} sections`;
+  if (stage.stage === "DRAFT" && stage.article) return "Article ready";
   if (stage.stage === "EDITORIAL" && stage.output && "findings" in stage.output) return `${stage.output.findings.length} findings`;
+  if (stage.stage === "REPURPOSE" && stage.output) return "5 variants";
   if (stage.attemptCount > 0 && (stage.status === "FAILED" || stage.status === "RUNNING")) return `Attempt ${stage.attemptCount} of ${stage.maxRetries}`;
   if (stage.humanEdited) return "Human edited";
-  return stage.status === "WAITING" ? "Not started" : stage.purpose;
+  return stage.status === "WAITING" ? "Not started" : "";
 }
 
 function labelOf(run: RunView, stage: StageName): string {
