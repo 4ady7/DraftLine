@@ -14,7 +14,7 @@ import type { BrandProfileInput } from "@/domain/schemas";
 import { demoPackage } from "@/server/demo/catalog";
 import { liveAiConfigured } from "@/server/auth";
 import { getDb } from "@/server/db";
-import { AppError } from "@/server/errors";
+import { AppError, LostRaceError } from "@/server/errors";
 import { applyEdit } from "@/server/workflow/edits";
 import { staleReasonFor, toRunView } from "@/server/workflow/dto";
 import { changeState, enqueue, hashPayload, isInflight, newLock, openStage } from "@/server/workflow/execute";
@@ -146,7 +146,7 @@ export async function approve(
   const result = await mutate(owner, runId, idempotencyKey, "approve", body, async (tx, run) => {
     const execution = await currentStage(tx, run.id, body.stage);
     await assertReview(tx, run, execution, body.expectedRevision);
-    await tx.stageExecution.update({ where: { id: execution.id }, data: { status: "APPROVED" } });
+    await claimExecution(tx, execution, body.expectedRevision, ["AWAITING_REVIEW"], { status: "APPROVED" });
     await tx.checkpoint.updateMany({
       where: { stageExecutionId: execution.id, status: "OPEN" },
       data: { status: "APPROVED", decidedAt: new Date() },
@@ -183,7 +183,7 @@ export async function reject(
   return mutate(owner, runId, idempotencyKey, "reject", body, async (tx, run) => {
     const execution = await currentStage(tx, run.id, body.stage);
     await assertReview(tx, run, execution, body.expectedRevision);
-    await tx.stageExecution.update({ where: { id: execution.id }, data: { status: "REJECTED" } });
+    await claimExecution(tx, execution, body.expectedRevision, ["AWAITING_REVIEW"], { status: "REJECTED" });
     await tx.checkpoint.updateMany({
       where: { stageExecutionId: execution.id, status: "OPEN" },
       data: { status: "REJECTED", reason: body.reason, decidedAt: new Date() },
@@ -208,6 +208,11 @@ export async function editStage(
     }
     assertEditable(run, execution);
     const reopening = run.state === "BLOCKED" && execution.status === "REJECTED";
+    if (body.stage === "EDITORIAL" && !reopening) {
+      throw new AppError("Editorial findings stay as the checker wrote them. Approve them, reject them, or regenerate the draft.", "VALIDATION", 400);
+    }
+    const fromStatus = reopening ? "REJECTED" : execution.status;
+    const nextStatus = reopening ? "AWAITING_REVIEW" : undefined;
     const { changed } = body.stage === "EDITORIAL"
       ? { changed: [] as string[] }
       : await applyEdit(tx, {
@@ -216,12 +221,14 @@ export async function editStage(
           executionId: execution.id,
           outputJson: execution.outputJson,
           content: body.content,
+          expectedRevision: body.expectedRevision,
+          fromStatus,
+          nextStatus,
         });
-    if (body.stage === "EDITORIAL" && !reopening) {
-      throw new AppError("Editorial findings stay as the checker wrote them. Approve them, reject them, or regenerate the draft.", "VALIDATION", 400);
+    if (body.stage === "EDITORIAL" && reopening) {
+      await claimExecution(tx, execution, body.expectedRevision, ["REJECTED"], { status: "AWAITING_REVIEW" });
     }
     if (reopening) {
-      await tx.stageExecution.update({ where: { id: execution.id }, data: { status: "AWAITING_REVIEW" } });
       await tx.checkpoint.create({
         data: { runId: run.id, stageExecutionId: execution.id, stage: body.stage, status: "OPEN" },
       });
@@ -420,6 +427,20 @@ async function loadRun(owner: string, runId: string) {
   });
   if (!run) throw new AppError("Run not found.", "NOT_FOUND", 404);
   return run;
+}
+
+async function claimExecution(
+  tx: Prisma.TransactionClient,
+  execution: StageExecution,
+  expectedRevision: number,
+  from: string[],
+  data: Prisma.StageExecutionUpdateManyMutationInput,
+) {
+  const updated = await tx.stageExecution.updateMany({
+    where: { id: execution.id, revision: expectedRevision, status: { in: from } },
+    data: { ...data, revision: { increment: 1 } },
+  });
+  if (updated.count !== 1) throw new LostRaceError();
 }
 
 async function currentStage(tx: Prisma.TransactionClient, runId: string, stage: StageName): Promise<StageExecution> {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RunView, StageView } from "@/domain/dto";
 import type { DraftOutput, EditorialOutput, OutlineOutput, RepurposeOutput, ResearchOutput } from "@/domain/schemas";
-import { describeRunState, type StageName } from "@/domain/stages";
+import { STAGE_META, STAGE_ORDER, describeRunState, type StageName } from "@/domain/stages";
 import { formatClock, formatDuration } from "@/domain/text";
 
 const EVENT_TYPES = [
@@ -85,12 +85,12 @@ export function Workspace({ runId }: { runId: string }) {
         body: JSON.stringify(body),
       });
       const data = await response.json();
+      idem.current = newKey();
       if (!response.ok) {
         setError(data.error?.message ?? "The action failed.");
         await reload();
         return;
       }
-      idem.current = newKey();
       setRun(data.run as RunView);
     } catch {
       setError("The network request failed. The run is still on the server. Refresh to see the latest state.");
@@ -240,6 +240,7 @@ function StageBody({
   const [rejecting, setRejecting] = useState(false);
   const dirty = editing && JSON.stringify(draft) !== JSON.stringify(editorSeed(stage));
   const canModerate = stage.status === "AWAITING_REVIEW" && run.state === `${stage.stage}_REVIEW` && !stage.stale;
+  const upstreamBlock = upstreamBlocker(stage.stage, run);
   const canEdit = !stage.stale && stage.output && ((canModerate && stage.stage !== "EDITORIAL") || (run.state === "BLOCKED" && run.activeStage === stage.stage) || (stage.stage === "REPURPOSE" && run.state === "COMPLETED"));
 
   useEffect(() => {
@@ -258,9 +259,11 @@ function StageBody({
       {stage.stale ? (
         <div className="banner" data-kind="stale">
           <p>{stage.staleReason ?? "This stage is stale."}</p>
-          <div className="btn-row">
-            <button className="btn btn-accent" type="button" disabled={pending || run.state.endsWith("_RUNNING")} onClick={() => act({ action: "regenerate", stage: stage.stage })}>Regenerate {stage.label}</button>
-          </div>
+          {upstreamBlock ? <p>{upstreamBlock}</p> : (
+            <div className="btn-row">
+              <button className="btn btn-accent" type="button" disabled={pending || run.state.endsWith("_RUNNING")} onClick={() => act({ action: "regenerate", stage: stage.stage })}>Regenerate {stage.label}</button>
+            </div>
+          )}
         </div>
       ) : null}
       {stage.status === "FAILED" && run.state !== "FAILED" ? <div className="banner" data-kind="error"><p>{stage.lastError}</p></div> : null}
@@ -284,7 +287,7 @@ function StageBody({
         {canEdit && !editing ? <button className="btn" type="button" onClick={() => { setDraft(editorSeed(stage)); setEditing(true); }}>Edit</button> : null}
         {editing ? <button className="btn btn-primary" type="button" disabled={pending} onClick={() => act({ action: "edit", stage: stage.stage, expectedRevision: stage.revision, content: draft }).then(() => setEditing(false))}>Save edit</button> : null}
         {editing ? <button className="btn" type="button" onClick={() => { setDraft(editorSeed(stage)); setEditing(false); }}>Cancel</button> : null}
-        {stage.version && !run.state.endsWith("_RUNNING") && run.state !== "RETRYING" && run.state !== "CANCELLED" && run.state !== "DRAFT_CREATED" ? (
+        {stage.version && !upstreamBlock && !run.state.endsWith("_RUNNING") && run.state !== "RETRYING" && run.state !== "CANCELLED" && run.state !== "DRAFT_CREATED" ? (
           <button className="btn" type="button" disabled={pending} onClick={() => act({ action: "regenerate", stage: stage.stage })}>Regenerate stage</button>
         ) : null}
         {run.state !== "COMPLETED" && run.state !== "CANCELLED" && run.state !== "DRAFT_CREATED" ? <button className="btn btn-quiet" type="button" disabled={pending} onClick={() => act({ action: "cancel" })}>Cancel run</button> : null}
@@ -572,6 +575,17 @@ function statusLabel(stage: StageView): string {
   if (stage.status === "STALE") return "Stale";
   if (stage.status === "WAITING") return "Waiting";
   return stage.status.charAt(0) + stage.status.slice(1).toLowerCase();
+}
+
+function upstreamBlocker(stage: StageName, run: RunView): string | null {
+  const index = STAGE_ORDER.indexOf(stage);
+  for (const name of STAGE_ORDER.slice(0, index)) {
+    const row = run.stages.find((item) => item.stage === name);
+    if (!row || row.status === "WAITING" || row.stale || (row.status !== "APPROVED" && row.status !== "COMPLETED")) {
+      return `Approve the current ${STAGE_META[name].label} before regenerating ${STAGE_META[stage].label}.`;
+    }
+  }
+  return null;
 }
 
 function selectedDetail(stage: StageView, run: RunView): string {

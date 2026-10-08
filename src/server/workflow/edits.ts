@@ -11,12 +11,21 @@ import {
   type ResearchOutput,
 } from "@/domain/schemas";
 import { markdownToBlocks } from "@/domain/text";
-import { AppError } from "@/server/errors";
+import { AppError, LostRaceError } from "@/server/errors";
 import { parseStored, withMeta } from "@/server/workflow/dto";
 
 export async function applyEdit(
   tx: Prisma.TransactionClient,
-  args: { runId: string; stage: StageName; executionId: string; outputJson: string | null; content: unknown },
+  args: {
+    runId: string;
+    stage: StageName;
+    executionId: string;
+    outputJson: string | null;
+    content: unknown;
+    expectedRevision: number;
+    fromStatus: string;
+    nextStatus?: string;
+  },
 ): Promise<{ changed: string[] }> {
   const parsed = parseStored(args.stage, args.outputJson);
   if (!parsed.output) throw new AppError("This stage has no output to edit.", "VALIDATION", 409);
@@ -29,15 +38,19 @@ export async function applyEdit(
   else if (args.stage === "REPURPOSE") next = editRepurpose(parsed.output as RepurposeOutput, args.content, changed);
   else throw new AppError("Editorial findings stay as the checker wrote them. Approve them, reject them, or regenerate the draft.", "VALIDATION", 400);
 
-  if (changed.length === 0) return { changed: [] };
-  const editedFields = unique([...(parsed.meta.editedFields ?? []), ...changed.map((edit) => edit.fieldPath)]);
-  await tx.stageExecution.update({
-    where: { id: args.executionId },
+  if (changed.length === 0 && !args.nextStatus) return { changed: [] };
+  const claimed = await tx.stageExecution.updateMany({
+    where: { id: args.executionId, revision: args.expectedRevision, status: args.fromStatus },
     data: {
-      outputJson: withMeta(next, { humanEdited: true, editedFields }),
+      ...(changed.length > 0
+        ? { outputJson: withMeta(next, { humanEdited: true, editedFields: unique([...(parsed.meta.editedFields ?? []), ...changed.map((edit) => edit.fieldPath)]) }) }
+        : {}),
+      ...(args.nextStatus ? { status: args.nextStatus } : {}),
       revision: { increment: 1 },
     },
   });
+  if (claimed.count !== 1) throw new LostRaceError();
+  if (changed.length === 0) return { changed: [] };
   await tx.humanEdit.createMany({
     data: changed.map((edit) => ({
       stageExecutionId: args.executionId,

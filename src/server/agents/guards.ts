@@ -1,6 +1,6 @@
-import type { ResearchModelOutput, ResearchOutput, SearchResult } from "@/domain/schemas";
+import type { DraftOutput, EditorialOutput, RepurposeOutput, ResearchModelOutput, ResearchOutput, SearchResult } from "@/domain/schemas";
 import { researchOutputSchema } from "@/domain/schemas";
-import { overlapsExcerpt } from "@/domain/text";
+import { isPublicHttpUrl, overlapsExcerpt } from "@/domain/text";
 import { MalformedModelOutputError } from "@/server/errors";
 
 /**
@@ -9,6 +9,14 @@ import { MalformedModelOutputError } from "@/server/errors";
  * an excerpt, a publisher, or a retrieval time.
  */
 export function constrainResearch(model: ResearchModelOutput, toolResults: SearchResult[]): ResearchOutput {
+  if (toolResults.some((result) => !isPublicHttpUrl(result.url))) {
+    throw new MalformedModelOutputError("A retrieved source did not use an http or https URL.");
+  }
+  const claimIds = new Set<string>();
+  for (const claim of model.claims) {
+    if (claimIds.has(claim.id)) throw new MalformedModelOutputError("The model returned two claims with the same id.");
+    claimIds.add(claim.id);
+  }
   const byUrl = new Map(toolResults.map((result) => [result.url, result]));
   for (const url of model.sourceUrls) {
     if (!byUrl.has(url)) {
@@ -62,6 +70,42 @@ export function knownEvidence(research: ResearchOutput): Set<string> {
   for (const source of research.sources) refs.add(source.url);
   for (const claim of research.claims) refs.add(claim.id);
   return refs;
+}
+
+export function groundDraft(draft: DraftOutput, research: ResearchOutput): { draft: DraftOutput; downgraded: number } {
+  const urls = new Set(research.sources.map((source) => source.url));
+  let downgraded = 0;
+  const blocks = draft.blocks.map((block) => {
+    const sourceUrls = block.sourceUrls.filter((url) => urls.has(url));
+    if (block.provenance !== "SOURCE_GROUNDED") return { ...block, sourceUrls };
+    const grounded = research.claims.some(
+      (claim) =>
+        claim.verification === "SOURCE_GROUNDED" &&
+        claim.provenance === "SOURCE_GROUNDED" &&
+        Boolean(claim.sourceUrl && sourceUrls.includes(claim.sourceUrl)) &&
+        (claim.text === block.text || overlapsExcerpt(block.text, claim.text)),
+    );
+    if (grounded) return { ...block, sourceUrls };
+    downgraded += 1;
+    return { ...block, provenance: "UNVERIFIED" as const, sourceUrls };
+  });
+  return { draft: { ...draft, blocks }, downgraded };
+}
+
+export function assertRepurposeClean(output: RepurposeOutput, editorial: EditorialOutput): void {
+  const risky = editorial.findings.filter((finding) => finding.severity === "high");
+  const bodies = [output.linkedin.body, output.linkedinShort.body, output.x.body, output.newsletterIntro.body, output.summary.body];
+  for (const finding of risky) {
+    const numbers = finding.affectedExcerpt.match(/\d+\.\d+|\d+\s*percent|\d+%/gi) ?? [];
+    for (const body of bodies) {
+      if (finding.affectedExcerpt.length >= 12 && body.includes(finding.affectedExcerpt)) {
+        throw new MalformedModelOutputError("A derivative repeated a high-severity excerpt.");
+      }
+      if (numbers.some((token) => body.includes(token))) {
+        throw new MalformedModelOutputError("A derivative repeated a figure the editorial check held back.");
+      }
+    }
+  }
 }
 
 export function filterEvidenceRefs(refs: string[], allowed: Set<string>): { kept: string[]; removed: number } {

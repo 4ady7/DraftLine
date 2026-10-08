@@ -5,12 +5,14 @@ import { synthesizeDraft, synthesizeEditorial, synthesizeOutline, synthesizeRepu
 import { MalformedModelOutputError } from "@/server/errors";
 
 function section(prompt: string, name: string): unknown {
-  const start = prompt.indexOf(`${name}_JSON:`);
-  if (start < 0) throw new MalformedModelOutputError(`Mock provider could not find ${name}_JSON in the prompt.`);
-  const from = prompt.indexOf("\n", start);
-  const endMarker = `\nEND_${name}`;
-  const end = prompt.indexOf(endMarker, from);
-  if (from < 0 || end < 0) throw new MalformedModelOutputError(`Mock provider could not read ${name}_JSON.`);
+  const header = `${name}_JSON:\n`;
+  const atStart = prompt.startsWith(header);
+  const atLine = prompt.indexOf(`\n${header}`);
+  if (!atStart && atLine < 0) throw new MalformedModelOutputError(`Mock provider could not find ${name}_JSON in the prompt.`);
+  const headerAt = atStart ? 0 : atLine + 1;
+  const from = headerAt + header.length;
+  const end = prompt.indexOf(`\nEND_${name}`, from);
+  if (end < 0) throw new MalformedModelOutputError(`Mock provider could not read ${name}_JSON.`);
   try {
     return JSON.parse(prompt.slice(from, end));
   } catch {

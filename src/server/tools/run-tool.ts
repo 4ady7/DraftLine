@@ -57,7 +57,8 @@ function toolResultMessage(name: string, output: unknown): string {
     return provider === "demo-corpus" ? `Demo corpus returned ${results} sources` : `Web search returned ${results} sources`;
   }
   if (name === "brandVoice") {
-    const profile = (output as { profile?: { brandName?: string } | null }).profile;
+    const profile = (output as { profile?: { brandName?: string } | null; degraded?: boolean }).profile;
+    if ((output as { degraded?: boolean }).degraded) return "The saved brand profile could not be read. This stage will continue without it.";
     return profile ? `Brand profile loaded for ${profile.brandName}` : "No brand profile is attached. The stage will continue without one.";
   }
   return "Tool completed";

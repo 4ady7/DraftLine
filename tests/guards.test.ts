@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DraftOutput, OutlineOutput, ResearchOutput, SearchResult } from "@/domain/schemas";
 import { overlapsExcerpt } from "@/domain/text";
-import { constrainResearch } from "@/server/agents/guards";
+import { assertRepurposeClean, constrainResearch, groundDraft } from "@/server/agents/guards";
 import { heuristicFindings } from "@/server/agents/heuristics";
 import { DEMO_PACKAGES } from "@/server/demo/catalog";
 import { MalformedModelOutputError } from "@/server/errors";
@@ -62,6 +62,100 @@ describe("research provenance guard", () => {
     expect(output.sources[0]?.excerpt).toBe(source().excerpt);
     expect(output.claims[0]?.verification).toBe("SOURCE_SUPPORT_UNCLEAR");
     expect(output.claims[0]?.provenance).toBe("UNVERIFIED");
+  });
+
+  it("refuses a source whose URL is not http or https", () => {
+    const retrieved = source({ url: "javascript:alert(1)" });
+    expect(() =>
+      constrainResearch(
+        {
+          summary: "A summary of the retrieved note.",
+          sourceUrls: [retrieved.url],
+          findings: [{ text: retrieved.excerpt, sourceUrls: [retrieved.url], relevance: "direct" }],
+          claims: [{ id: "c1", text: retrieved.excerpt, sourceUrl: retrieved.url, verification: "SOURCE_GROUNDED" }],
+        },
+        [retrieved],
+      ),
+    ).toThrow(MalformedModelOutputError);
+  });
+
+  it("refuses duplicate claim ids", () => {
+    const retrieved = source();
+    expect(() =>
+      constrainResearch(
+        {
+          summary: "A summary of the retrieved note.",
+          sourceUrls: [retrieved.url],
+          findings: [{ text: retrieved.excerpt, sourceUrls: [retrieved.url], relevance: "direct" }],
+          claims: [
+            { id: "c1", text: retrieved.excerpt, sourceUrl: retrieved.url, verification: "SOURCE_GROUNDED" },
+            { id: "c1", text: retrieved.excerpt, sourceUrl: retrieved.url, verification: "UNVERIFIED" },
+          ],
+        },
+        [retrieved],
+      ),
+    ).toThrow(MalformedModelOutputError);
+  });
+});
+
+describe("downstream provenance guards", () => {
+  it("downgrades a grounded paragraph that is not a grounded claim", () => {
+    const research = {
+      summary: "Summary",
+      sources: [source()],
+      findings: [],
+      claims: [
+        {
+          id: "c1",
+          text: source().excerpt,
+          sourceUrl: source().url,
+          verification: "SOURCE_GROUNDED" as const,
+          provenance: "SOURCE_GROUNDED" as const,
+        },
+      ],
+    };
+    const draft = {
+      title: "Title",
+      cta: "",
+      seo: { title: "Title", description: "A description of the close.", keywords: ["close", "queue"], slug: "title" },
+      blocks: [
+        { id: "b1", kind: "paragraph" as const, text: source().excerpt, provenance: "SOURCE_GROUNDED" as const, sourceUrls: [source().url] },
+        { id: "b2", kind: "paragraph" as const, text: "An invented savings figure of 40 percent.", provenance: "SOURCE_GROUNDED" as const, sourceUrls: [source().url] },
+        { id: "b3", kind: "heading" as const, text: "The close", provenance: "MODEL_GENERATED" as const, sourceUrls: [] },
+        { id: "b4", kind: "paragraph" as const, text: "The rest of the argument.", provenance: "MODEL_GENERATED" as const, sourceUrls: [] },
+      ],
+    };
+    const grounded = groundDraft(draft, research);
+    expect(grounded.draft.blocks[0]?.provenance).toBe("SOURCE_GROUNDED");
+    expect(grounded.draft.blocks[1]?.provenance).toBe("UNVERIFIED");
+    expect(grounded.downgraded).toBe(1);
+  });
+
+  it("rejects a derivative that repeats a held-back figure", () => {
+    const editorial = {
+      verdict: "NEEDS_REVISION" as const,
+      findings: [
+        {
+          id: "f1",
+          severity: "high" as const,
+          category: "needs_current_data",
+          summary: "Check the figure.",
+          affectedExcerpt: "The median close is 8.5 business days.",
+          suggestion: "Verify it.",
+          verificationFlag: "NEEDS_CURRENT_DATA",
+          origin: "rule" as const,
+        },
+      ],
+    };
+    const clean = {
+      linkedin: { purpose: "One point.", body: "The close is a queue.", provenance: "MODEL_GENERATED" as const },
+      linkedinShort: { purpose: "Shorter.", body: "The close is a queue.", provenance: "MODEL_GENERATED" as const },
+      x: { purpose: "Short.", body: "The close is a queue.", provenance: "MODEL_GENERATED" as const },
+      newsletterIntro: { purpose: "Open.", body: "The close is a queue.", provenance: "MODEL_GENERATED" as const },
+      summary: { purpose: "Skim.", body: "The close is a queue.", provenance: "MODEL_GENERATED" as const },
+    };
+    expect(() => assertRepurposeClean(clean, editorial)).not.toThrow();
+    expect(() => assertRepurposeClean({ ...clean, x: { ...clean.x, body: "Median close: 8.5 days." } }, editorial)).toThrow(MalformedModelOutputError);
   });
 });
 

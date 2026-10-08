@@ -16,7 +16,7 @@ import {
 } from "@/domain/schemas";
 import { blocksToMarkdown } from "@/domain/text";
 import { completeStructured, providerFor, type AIProvider } from "@/server/ai/index";
-import { constrainResearch, filterEvidenceRefs, knownEvidence } from "@/server/agents/guards";
+import { assertRepurposeClean, constrainResearch, filterEvidenceRefs, groundDraft, knownEvidence } from "@/server/agents/guards";
 import { deriveVerdict, heuristicFindings } from "@/server/agents/heuristics";
 import { block, SYSTEM_BASE } from "@/server/agents/prompts";
 import { emitEvent } from "@/server/events";
@@ -142,20 +142,11 @@ async function runDraft(args: AgentRun, provider: AIProvider): Promise<DraftOutp
     system: `${SYSTEM_BASE}\nMark a paragraph SOURCE_GROUNDED only when its text is a claim from RESEARCH_JSON and you include that claim's source URL. Use BRAND_GUIDANCE only for the supplied example line. Everything else is MODEL_GENERATED.`,
     prompt: [block("BRIEF", args.brief), block("BRAND", brand), block("RESEARCH", research), block("OUTLINE", outline)].join("\n\n"),
   });
-  const urls = new Set(research.sources.map((source) => source.url));
-  let downgraded = 0;
-  const blocks = model.blocks.map((blockItem) => {
-    const sourceUrls = blockItem.sourceUrls.filter((url) => urls.has(url));
-    if (blockItem.provenance === "SOURCE_GROUNDED" && sourceUrls.length === 0) {
-      downgraded += 1;
-      return { ...blockItem, provenance: "UNVERIFIED" as const, sourceUrls: [] };
-    }
-    return { ...blockItem, sourceUrls };
-  });
-  if (downgraded > 0) {
-    await emitEvent(args.runId, "stage_progress", `Marked ${downgraded} paragraphs unverified because their sources were not in the approved research`);
+  const grounded = groundDraft({ ...model, cta: model.cta ?? "" }, research);
+  if (grounded.downgraded > 0) {
+    await emitEvent(args.runId, "stage_progress", `Marked ${grounded.downgraded} paragraphs unverified because they were not a source-grounded claim`);
   }
-  return draftOutputSchema.parse({ ...model, blocks });
+  return draftOutputSchema.parse(grounded.draft);
 }
 
 async function runEditorial(args: AgentRun, provider: AIProvider): Promise<EditorialOutput> {
@@ -194,7 +185,9 @@ async function runRepurpose(args: AgentRun, provider: AIProvider): Promise<Repur
     system: `${SYSTEM_BASE}\nEach variant needs a distinct purpose. Do not repeat a high-severity excerpt from EDITORIAL_JSON. The X variant must be 280 characters or fewer. Do not present derivative copy as sourced fact.`,
     prompt: [block("BRIEF", args.brief), block("BRAND", brand), block("DRAFT", draft), block("EDITORIAL", editorial)].join("\n\n"),
   });
-  return repurposePackageSchema.parse(model);
+  const parsed = repurposePackageSchema.parse(model);
+  assertRepurposeClean(parsed, editorial);
+  return parsed;
 }
 
 async function loadBrand(args: AgentRun): Promise<BrandProfileInput | null> {

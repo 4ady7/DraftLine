@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { searchOutputSchema, searchResultSchema, type SearchOutput } from "@/domain/schemas";
+import { isPublicHttpUrl } from "@/domain/text";
 import { consumeFault } from "@/server/ai/provider";
 import { demoPackage } from "@/server/demo/catalog";
 import { SearchTimeoutError, ToolFailedError } from "@/server/errors";
@@ -94,10 +95,17 @@ async function tavilySearch(input: z.infer<typeof inputSchema>): Promise<SearchO
   const body = tavilySchema.safeParse(await response.json());
   if (!body.success) throw new ToolFailedError("The search provider returned a response the workflow could not use.", true);
   const retrievedAt = new Date().toISOString();
-  const results = body.data.results.slice(0, input.limit).map((result, index) => {
-    const host = new URL(result.url).hostname.replace(/^www\./, "");
-    return searchResultSchema.parse({
-      id: `web-${index + 1}`,
+  const results = [];
+  for (const result of body.data.results) {
+    if (!isPublicHttpUrl(result.url)) continue;
+    let host = "unknown";
+    try {
+      host = new URL(result.url).hostname.replace(/^www\./, "");
+    } catch {
+      continue;
+    }
+    const parsed = searchResultSchema.safeParse({
+      id: `web-${results.length + 1}`,
       url: result.url,
       title: result.title || host,
       publisher: host,
@@ -106,6 +114,9 @@ async function tavilySearch(input: z.infer<typeof inputSchema>): Promise<SearchO
       retrievedAt,
       provider: "tavily",
     });
-  });
+    if (!parsed.success) continue;
+    results.push(parsed.data);
+    if (results.length >= input.limit) break;
+  }
   return { query: input.query, provider: "tavily", results };
 }

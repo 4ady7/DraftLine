@@ -54,6 +54,15 @@ export function containsPhrase(haystack: string, phrase: string): boolean {
   return new RegExp(`\\b${escaped}\\b`, "i").test(haystack);
 }
 
+export function isPublicHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 export function overlapsExcerpt(claim: string, excerpt: string): boolean {
   const tokens = claim
     .toLowerCase()

@@ -1,4 +1,16 @@
 import { z } from "zod";
+import { isPublicHttpUrl } from "@/domain/text";
+
+const httpUrl = z
+  .string()
+  .trim()
+  .url()
+  .max(500)
+  .refine(isPublicHttpUrl, "Only http and https URLs are accepted.");
+
+function oneLine(value: string): boolean {
+  return !/[\r\n]/.test(value);
+}
 
 export const verificationSchema = z.enum([
   "SOURCE_GROUNDED",
@@ -26,12 +38,12 @@ export const metaSchema = z.object({
 
 export const researchModelSchema = z.object({
   summary: z.string().trim().min(1).max(4000),
-  sourceUrls: z.array(z.string().url()).min(1).max(12),
+  sourceUrls: z.array(httpUrl).min(1).max(12),
   findings: z
     .array(
       z.object({
         text: z.string().trim().min(1).max(1000),
-        sourceUrls: z.array(z.string().url()).min(1).max(4),
+        sourceUrls: z.array(httpUrl).min(1).max(4),
         relevance: z.string().trim().min(1).max(300),
       }),
     )
@@ -42,7 +54,7 @@ export const researchModelSchema = z.object({
       z.object({
         id: z.string().trim().min(1).max(80),
         text: z.string().trim().min(1).max(800),
-        sourceUrl: z.string().url().nullable(),
+        sourceUrl: httpUrl.nullable(),
         verification: verificationSchema,
       }),
     )
@@ -52,7 +64,7 @@ export const researchModelSchema = z.object({
 
 export const sourceSchema = z.object({
   id: z.string().trim().min(1).max(80),
-  url: z.string().url().max(500),
+  url: httpUrl,
   title: z.string().trim().min(1).max(300),
   publisher: z.string().trim().min(1).max(200),
   retrievedAt: z.string().datetime(),
@@ -68,7 +80,7 @@ export const researchOutputSchema = z.object({
     .array(
       z.object({
         text: z.string().trim().min(1).max(1000),
-        sourceUrls: z.array(z.string().url()).min(1).max(4),
+        sourceUrls: z.array(httpUrl).min(1).max(4),
         relevance: z.string().trim().min(1).max(300),
       }),
     )
@@ -79,7 +91,7 @@ export const researchOutputSchema = z.object({
       z.object({
         id: z.string().trim().min(1).max(80),
         text: z.string().trim().min(1).max(800),
-        sourceUrl: z.string().url().nullable(),
+        sourceUrl: httpUrl.nullable(),
         verification: verificationSchema,
         provenance: provenanceSchema,
       }),
@@ -112,14 +124,14 @@ export const draftBlockSchema = z.object({
   kind: z.enum(["heading", "paragraph"]),
   text: z.string().trim().min(1).max(3000),
   provenance: provenanceSchema,
-  sourceUrls: z.array(z.string().url()).max(4),
+  sourceUrls: z.array(httpUrl).max(4),
 });
 
 export const seoSchema = z.object({
-  title: z.string().trim().min(1).max(70),
-  description: z.string().trim().min(1).max(180),
-  keywords: z.array(z.string().trim().min(1).max(40)).min(2).max(8),
-  slug: z.string().trim().min(1).max(80),
+  title: z.string().trim().min(1).max(70).refine(oneLine, "SEO title cannot contain a line break."),
+  description: z.string().trim().min(1).max(180).refine(oneLine, "Meta description cannot contain a line break."),
+  keywords: z.array(z.string().trim().min(1).max(40).refine(oneLine, "A keyword cannot contain a line break.")).min(2).max(8),
+  slug: z.string().trim().min(1).max(80).refine(oneLine, "Slug cannot contain a line break."),
 });
 
 export const draftOutputSchema = z.object({
@@ -180,7 +192,7 @@ export const brandSchema = z.object({
 
 export const searchResultSchema = z.object({
   id: z.string().min(1).max(80),
-  url: z.string().url(),
+  url: httpUrl,
   title: z.string().min(1).max(300),
   publisher: z.string().min(1).max(200),
   excerpt: z.string().min(1).max(2000),

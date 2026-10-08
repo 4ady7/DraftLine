@@ -80,6 +80,8 @@ async function executeActiveStage(runId: string): Promise<void> {
     const started = Date.now();
     try {
       await sleep(stageDelay());
+      const gate = await getDb().workflowRun.findUnique({ where: { id: runId } });
+      if (!gate || gate.state === "CANCELLED" || gate.lockToken !== initial.lockToken || gate.state !== runningStateFor(stage)) return;
       const upstream = await loadUpstream(runId, current);
       const output = await runAgent({
         runId,
@@ -127,7 +129,7 @@ async function persistSuccess(args: {
   const durationMs = Date.now() - args.started;
   await db.$transaction(async (tx) => {
     const run = await tx.workflowRun.findUnique({ where: { id: args.runId } });
-    if (!run) throw new LostRaceError();
+    if (!run || run.lockToken !== args.lockToken || run.state !== runningStateFor(args.stage)) throw new LostRaceError();
     const stageWrite = await tx.stageExecution.updateMany({
       where: { id: args.execution.id, status: "RUNNING" },
       data: {

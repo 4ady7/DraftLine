@@ -19,6 +19,10 @@ describe("workflow state machine", () => {
 
   it("rejects an approval transition from a running state", () => {
     expect(canTransition("OUTLINE_RUNNING", "DRAFT_RUNNING")).toBe(false);
+    expect(canTransition("RESEARCH_RUNNING", "COMPLETED")).toBe(false);
+    expect(canTransition("FAILED", "COMPLETED")).toBe(false);
+    expect(canTransition("CANCELLED", "DRAFT_RUNNING")).toBe(false);
+    expect(canTransition("RESEARCH_REVIEW", "REPURPOSE_RUNNING")).toBe(false);
   });
 
   it("only lets a retry return to the active stage", () => {
