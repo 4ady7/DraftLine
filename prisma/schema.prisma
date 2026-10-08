@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id        String        @id @default(cuid())
+  ownerKey  String
+  name      String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  briefs    Brief[]
+  runs      WorkflowRun[]
+  brand     BrandProfile?
+
+  @@index([ownerKey])
+}
+
+model BrandProfile {
+  id                 String  @id @default(cuid())
+  projectId          String  @unique
+  project            Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  brandName          String
+  tone               String
+  audience           String
+  preferredLanguage  String  @default("en")
+  wordsToUseJson     String
+  wordsToAvoidJson   String
+  styleGuidance      String
+  exampleCopy        String
+}
+
+model Brief {
+  id          String        @id @default(cuid())
+  projectId   String
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  rawBrief    String
+  audience    String
+  contentGoal String
+  category    String
+  createdAt   DateTime      @default(now())
+  runs        WorkflowRun[]
+}
+
+model WorkflowRun {
+  id               String             @id @default(cuid())
+  projectId        String
+  project          Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  briefId          String
+  brief            Brief              @relation(fields: [briefId], references: [id], onDelete: Cascade)
+  ownerKey         String
+  state            String
+  mode             String
+  activeStage      String?
+  failedStage      String?
+  lastError        String?
+  errorRetryable   Boolean            @default(false)
+  lockToken        String?
+  lockedAt         DateTime?
+  faultJson        String?
+  manualRetryCount Int                @default(0)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  completedAt      DateTime?
+  stages           StageExecution[]
+  events           WorkflowEvent[]
+  checkpoints      Checkpoint[]
+  tools            ToolExecution[]
+  assets           GeneratedAsset[]
+  idempotency      IdempotencyRecord[]
+
+  @@index([ownerKey, updatedAt])
+}
+
+model StageExecution {
+  id               String         @id @default(cuid())
+  runId            String
+  run              WorkflowRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stage            String
+  version          Int
+  status           String
+  inputVersionJson String
+  outputJson       String?
+  attemptCount     Int            @default(0)
+  maxRetries       Int            @default(3)
+  manualRetries    Int            @default(0)
+  lastError        String?
+  errorRetryable   Boolean        @default(false)
+  isCurrent        Boolean        @default(true)
+  staleReason      String?
+  revision         Int            @default(1)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  durationMs       Int?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  edits            HumanEdit[]
+  sources          Source[]
+  claims           Claim[]
+  checkpoints      Checkpoint[]
+
+  @@unique([runId, stage, version])
+  @@index([runId, stage, isCurrent])
+}
+
+model Checkpoint {
+  id               String         @id @default(cuid())
+  runId            String
+  run              WorkflowRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stageExecutionId String
+  stageExecution   StageExecution @relation(fields: [stageExecutionId], references: [id], onDelete: Cascade)
+  stage            String
+  status           String
+  reason           String?
+  createdAt        DateTime       @default(now())
+  decidedAt        DateTime?
+
+  @@index([runId, status])
+}
+
+model HumanEdit {
+  id               String         @id @default(cuid())
+  stageExecutionId String
+  stageExecution   StageExecution @relation(fields: [stageExecutionId], references: [id], onDelete: Cascade)
+  fieldPath        String
+  beforeText       String
+  afterText        String
+  createdAt        DateTime       @default(now())
+}
+
+model Source {
+  id               String         @id @default(cuid())
+  stageExecutionId String
+  stageExecution   StageExecution @relation(fields: [stageExecutionId], references: [id], onDelete: Cascade)
+  sourceKey        String
+  url              String
+  title            String
+  publisher        String
+  retrievedAt      DateTime
+  excerpt          String
+  relevance        String
+  provider         String
+}
+
+model Claim {
+  id               String         @id @default(cuid())
+  stageExecutionId String
+  stageExecution   StageExecution @relation(fields: [stageExecutionId], references: [id], onDelete: Cascade)
+  claimKey         String
+  text             String
+  sourceUrl        String?
+  verification     String
+  provenance       String
+}
+
+model ToolExecution {
+  id               String      @id @default(cuid())
+  runId            String
+  run              WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stageExecutionId String?
+  toolName         String
+  status           String
+  inputJson        String
+  outputJson       String?
+  error            String?
+  retryable        Boolean     @default(false)
+  durationMs       Int?
+  createdAt        DateTime    @default(now())
+}
+
+model GeneratedAsset {
+  id               String      @id @default(cuid())
+  runId            String
+  run              WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  stageExecutionId String
+  kind             String
+  content          String
+  provenance       String
+  isCurrent        Boolean     @default(true)
+  stale            Boolean     @default(false)
+  version          Int
+  createdAt        DateTime    @default(now())
+}
+
+model WorkflowEvent {
+  id          Int         @id @default(autoincrement())
+  runId       String
+  run         WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  type        String
+  message     String
+  payloadJson String?
+  createdAt   DateTime    @default(now())
+
+  @@index([runId, id])
+}
+
+model IdempotencyRecord {
+  key          String      @id
+  ownerKey     String
+  runId        String
+  run          WorkflowRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  action       String
+  requestHash  String
+  createdAt    DateTime    @default(now())
+}
